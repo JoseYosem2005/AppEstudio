@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mis estudios</title>
+<style>
+:root{--bg:#f3f6f9;--grid:#dfe7ef;--ink:#14213d;--mut:#5b6b82;--paper:#fff;--line:#cdd8e4;--acc:#2457c5;--onacc:#fff;--late:#c2410c}
+@media(prefers-color-scheme:dark){:root{--bg:#10192b;--grid:#18233a;--ink:#e6edf7;--mut:#93a4bd;--paper:#17223a;--line:#2b3a57;--acc:#7aa2f7;--onacc:#10192b;--late:#fb923c}}
+*{box-sizing:border-box}
+body{margin:0;color:var(--ink);font:16px/1.45 system-ui,sans-serif;background:linear-gradient(var(--grid) 1px,transparent 1px) 0 0/24px 24px,linear-gradient(90deg,var(--grid) 1px,transparent 1px) 0 0/24px 24px,var(--bg)}
+main{max-width:760px;margin:0 auto;padding:16px 14px 80px}
+h1,h2{font-family:Georgia,"Iowan Old Style",serif;margin:.3em 0}
+h1{font-size:1.9rem}h2{font-size:1.2rem;margin-top:1.4em}
+h2.sec{border-left:4px solid var(--acc);padding-left:10px}
+a{color:var(--acc)}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--paper);color:var(--ink);border-radius:6px;padding:7px 12px;min-height:38px}
+button.pri{background:var(--acc);border-color:var(--acc);color:var(--onacc)}
+.ghost{background:none;font-size:.85rem;padding:4px 9px;min-height:32px}
+.danger{color:var(--late)}
+input:not([type=checkbox]){font:inherit;color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:8px 10px;min-height:40px;width:100%}
+form,.box{display:grid;gap:8px;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:12px;margin:12px 0}
+.stack{display:grid;gap:4px}
+.cards{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
+.card{text-align:left;width:100%;border-left:5px solid var(--c);padding:12px 14px;border-radius:8px}
+.tabs{display:flex;gap:4px;overflow-x:auto;border-bottom:1px solid var(--line);margin-top:10px}
+.tabs button{border:0;border-bottom:3px solid transparent;border-radius:0;background:none;white-space:nowrap}
+.tabs .on{border-color:var(--c);font-weight:600}
+ul{list-style:none;padding:0;margin:12px 0;display:grid;gap:10px}
+.it{background:var(--paper);border:1px solid var(--line);border-left:4px solid var(--c);border-radius:8px;padding:10px 12px}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.sp{flex:1}
+.fn{font-weight:600;word-break:break-word}
+.files{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}
+.chip{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;font-size:.85rem;overflow:hidden}
+.chip a{padding:3px 4px 3px 10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip button{border:0;background:none;padding:3px 8px;min-height:0}
+.mut{color:var(--mut);font-size:.85rem}
+.late{color:var(--late);font-weight:600;font-size:.85rem}
+.done .fn,.done b{text-decoration:line-through;color:var(--mut)}
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script>
+const $=s=>document.querySelector(s);
+const COL=['#2457c5','#2f7d5f','#b4531b','#7a3e9d','#0e7490','#a1304a'];
+let S={subjects:[]},db,view={s:null,tab:'topics',t:null};
+const P=window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform()?((Capacitor.Plugins&&Capacitor.Plugins.StudyFolder)||(Capacitor.registerPlugin&&Capacitor.registerPlugin('StudyFolder'))):null;
+const NATIVE=!!P;
+let ready=!NATIVE,rootName='',setupErr='';
+const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36);
+const esc=t=>String(t??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const cur=()=>S.subjects.find(x=>x.id===view.s);
+const today=()=>new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10);
+const LST=(s,k)=>k==='guides'?s.topics.find(x=>x.id===view.t).guides:s[k];
+
+/* ---------- Almacenamiento (IndexedDB) ---------- */
+const openDB=()=>new Promise((res,rej)=>{const r=indexedDB.open('estudios',1);r.onupgradeneeded=()=>{r.result.createObjectStore('kv');r.result.createObjectStore('files')};r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+const tx=(st,m,f)=>new Promise((res,rej)=>{const t=db.transaction(st,m),o=f(t.objectStore(st));t.oncomplete=()=>res(o&&o.result);t.onerror=()=>rej(t.error)});
+const save=()=>NATIVE?P.writeText({path:'estudios.json',text:JSON.stringify(S)}):tx('kv','readwrite',s=>s.put(S,'state'));
+async function addFiles(list){const out=[];for(const f of list){const id=uid();await tx('files','readwrite',s=>s.put({name:f.name,type:f.type,blob:f},id));out.push({id,name:f.name})}return out}
+const delFiles=async a=>{for(const f of a){if(NATIVE)await P.remove({path:f.id});else await tx('files','readwrite',s=>s.delete(f.id))}};
+const allFiles=s=>[...s.biblio,...s.topics.flatMap(t=>t.guides),...s.tasks.flatMap(t=>[...(t.hasFile?[t]:[]),...t.files])];
+function dl(b,n){const u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=n;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3e4)}
+async function viewFile(id){if(NATIVE)return P.open({path:id}).catch(()=>alert('No se pudo abrir el archivo. Necesitas una app que sepa abrir ese tipo de archivo.'));const r=await tx('files','readonly',s=>s.get(id));if(!r)return alert('No se encontró el archivo.');const u=URL.createObjectURL(r.blob);window.open(u,'_blank')||dl(r.blob,r.name);setTimeout(()=>URL.revokeObjectURL(u),6e4)}
+async function saveFile(id){const r=await tx('files','readonly',s=>s.get(id));if(r)dl(r.blob,r.name)}
+const pick=()=>new Promise(res=>{const i=document.createElement('input');i.type='file';i.multiple=true;i.hidden=true;document.body.append(i);i.onchange=()=>{res([...i.files]);i.remove()};i.oncancel=()=>{res([]);i.remove()};i.click()});
+
+/* ---------- Carpeta del dispositivo (APK) ---------- */
+const safe=n=>String(n).replace(/[\/\\:*?"<>|]/g,'_').trim()||'Sin nombre';
+const uniq=(n,arr)=>{const b=safe(n);let d=b,i=2;while(arr.some(x=>x.dir===d))d=`${b} (${i++})`;return d};
+async function acquire(dir){
+  if(NATIVE){const r=await P.importFiles({dir});return(r.files||[]).map(n=>({id:`${dir}/${n}`,name:n}))}
+  const fs=await pick();return fs.length?addFiles(fs):[];
+}
+async function ls(p){try{return(await P.list({path:p})).entries||[]}catch(e){if(e&&e.message==='no-root')throw e;return[]}}
+const fl=(es,dir)=>es.filter(e=>!e.isDir&&!e.name.startsWith('.')).map(e=>({id:`${dir}/${e.name}`,name:e.name}));
+const byName=(a,b)=>a.name.localeCompare(b.name);
+const merge=(old,fresh)=>[...old.filter(x=>fresh.some(f=>f.id===x.id)),...fresh.filter(f=>!old.some(x=>x.id===f.id))];
+/* La carpeta manda: añade lo nuevo que haya en ella y quita lo que ya no existe */
+async function sync(){
+  const top=((await P.list({path:''})).entries||[]).filter(e=>e.isDir&&!e.name.startsWith('.')).sort(byName),subs=[];
+  for(const d of top){
+    const n=d.name,s=S.subjects.find(x=>x.dir===n)||{id:uid(),name:n,dir:n,color:COL[(S.subjects.length+subs.length)%COL.length],topics:[],biblio:[],tasks:[]};
+    s.biblio=merge(s.biblio,fl(await ls(`${n}/Bibliografía`),`${n}/Bibliografía`));
+    const tops=[];
+    for(const t of(await ls(`${n}/Temas`)).filter(e=>e.isDir).sort(byName)){
+      const o=s.topics.find(x=>x.dir===t.name)||{id:uid(),name:t.name,dir:t.name,guides:[]},p=`${n}/Temas/${t.name}`;
+      o.guides=merge(o.guides,fl(await ls(p),p));tops.push(o);
+    }
+    s.topics=tops;
+    const tp=`${n}/Tareas`,tf=fl(await ls(tp),tp),keep=s.tasks.filter(x=>!x.hasFile||tf.some(f=>f.id===x.id));
+    s.tasks=[...keep,...tf.filter(f=>!keep.some(x=>x.id===f.id)).map(f=>({...f,hasFile:true,due:'',done:false,files:[]}))];
+    subs.push(s);
+  }
+  S.subjects=subs;
+}
+async function loadNative(){
+  try{
+    let txt='';try{txt=(await P.readText({path:'estudios.json'})).text||''}catch(e){if(e&&e.message==='no-root')throw e}
+    try{S=JSON.parse(txt)}catch(e){S={subjects:[]}}
+    if(!S||!S.subjects)S={subjects:[]};
+    migrate();await sync();await save();ready=true;setupErr='';
+  }catch(e){ready=false;setupErr='No se pudo leer la carpeta. Elígela de nuevo.'}
+  render();
+}
+const setup=()=>`<h1>Mis estudios</h1><p>Elige la carpeta donde se guardarán todos tus archivos. La app la recordará y la cargará cada vez que la abras.</p><p class="late">${esc(setupErr)}</p><button class="pri" data-a="pickroot">Elegir carpeta</button>`;
+
+/* Convierte datos de la versión anterior al formato nuevo */
+function migrate(){
+  for(const s of S.subjects){
+    s.topics=s.topics||[];s.tasks=s.tasks||[];s.dir=s.dir||safe(s.name);
+    const nb=[];for(const b of s.biblio||[]){if(b.files)b.files.forEach(f=>nb.push({id:f.id,name:f.name}));else nb.push(b)}s.biblio=nb;
+    for(const t of s.topics){if(t.files){t.guides=t.files.map(f=>({id:f.id,name:f.name}));delete t.files}t.guides=t.guides||[];t.dir=t.dir||safe(t.name)}
+    if(s.guides){const g=s.guides.flatMap(x=>x.files||[]).map(f=>({id:f.id,name:f.name}));if(g.length)s.topics.push({id:uid(),name:'Guías anteriores',dir:'Guías anteriores',guides:g});delete s.guides}
+    for(const t of s.tasks){t.files=t.files||[];t.hasFile=!!t.hasFile}
+  }
+}
+
+/* ---------- Respaldo ---------- */
+const b64=b=>new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result);f.readAsDataURL(b)});
+async function exp(){const keys=await tx('files','readonly',s=>s.getAllKeys()),files={};for(const k of keys){const r=await tx('files','readonly',s=>s.get(k));files[k]={name:r.name,type:r.type,data:await b64(r.blob)}}dl(new Blob([JSON.stringify({v:2,state:S,files})],{type:'application/json'}),'respaldo-estudios.json')}
+async function imp(file){const j=JSON.parse(await file.text());if(!j.state)throw 0;if(!confirm('Esto reemplaza todo lo que tienes ahora. ¿Continuar?'))return;await tx('files','readwrite',s=>s.clear());for(const[id,f]of Object.entries(j.files||{})){const blob=await(await fetch(f.data)).blob();await tx('files','readwrite',s=>s.put({name:f.name,type:f.type,blob},id))}S=j.state;migrate();view={s:null,tab:'topics',t:null};await save();render()}
+
+/* ---------- Vistas ---------- */
+const fmt=d=>new Date(d+'T00:00').toLocaleDateString('es',{day:'numeric',month:'short'});
+const due=t=>{if(!t.due)return '';const late=t.due<today()&&!t.done;return `<span class="${late?'late':'mut'}">${late?'Vencida, ':'Para el '}${fmt(t.due)}</span>`};
+const chip=(k,i,f)=>`<span class="chip"><a href="#" data-a="open" data-f="${esc(f.id)}">${esc(f.name)}</a>${NATIVE?'':`<button data-a="save" data-f="${esc(f.id)}" title="Guardar en el dispositivo" aria-label="Guardar ${esc(f.name)}">↓</button>`}<button data-a="delf" data-i="${esc(i)}" data-f="${esc(f.id)}" title="Quitar archivo" aria-label="Quitar ${esc(f.name)}">×</button></span>`;
+const fileRow=(k,e,o={})=>{const lk=o.link!==false;return `<li class="it ${o.cls||''}"><div class="row">${lk?`<a class="fn" href="#" data-a="open" data-f="${esc(e.id)}">${esc(e.name)}</a>`:`<b>${esc(e.name)}</b>`}<span class="sp"></span>${o.meta||''}${o.acts||''}${lk&&!NATIVE?`<button class="ghost" data-a="save" data-f="${esc(e.id)}">Guardar</button>`:''}${o.ro?'':`<button class="ghost danger" data-a="dele" data-k="${k}" data-i="${esc(e.id)}">Quitar</button>`}</div>${o.body||''}</li>`};
+const list=(a,empty)=>a.length?`<ul>${a.join('')}</ul>`:`<p class="mut">${empty}</p>`;
+const byDue=(a,b)=>(a.due||'9')<(b.due||'9')?-1:1;
+
+function home(){
+  return `<h1>Mis estudios</h1>
+<form data-k="subject"><input name="name" placeholder="Nueva asignatura (ej. Física III)" required autocomplete="off"><button class="pri">Agregar asignatura</button></form>
+${S.subjects.length?`<div class="cards">${S.subjects.map(s=>`<button class="card" style="--c:${s.color}" data-a="subj" data-i="${s.id}"><b>${esc(s.name)}</b><br><span class="mut">${s.topics.length} temas, ${s.biblio.length} en bibliografía</span></button>`).join('')}</div>`:'<p class="mut">Agrega tu primera asignatura para empezar.</p>'}
+${NATIVE?`<div class="row" style="margin-top:28px"><span class="mut">Carpeta: ${esc(rootName)}</span><button class="ghost" data-a="pickroot">Cambiar carpeta</button></div>`:`<div class="row" style="margin-top:28px"><button class="ghost" data-a="exp">Exportar respaldo</button><button class="ghost" data-a="imp">Importar respaldo</button><input type="file" id="imp" accept=".json" hidden></div>`}`;
+}
+
+function subj(s){
+  const tp=view.t&&s.topics.find(x=>x.id===view.t);
+  if(view.t&&!tp)view.t=null;
+  const top=`<div class="row"><button class="ghost" data-a="${tp?'back':'home'}">‹ ${tp?esc(s.name):'Asignaturas'}</button><span class="sp"></span>${tp?`<button class="ghost danger" data-a="delt" data-i="${tp.id}">Eliminar tema</button>`:`<button class="ghost danger" data-a="dels">Eliminar asignatura</button>`}</div>`;
+  if(tp)return `<div style="--c:${s.color}">${top}<h1>${esc(tp.name)}</h1>
+<h2>Guías y medios de estudio</h2>
+<button class="pri" data-a="addfiles" data-k="guides">Añadir archivos</button>
+${list(tp.guides.map(g=>fileRow('guides',g)),'Aún no hay guías ni medios en este tema.')}
+<h2 class="sec">Bibliografía de la asignatura</h2>
+<p class="mut">Material general de ${esc(s.name)}, igual en todos los temas.</p>
+${list(s.biblio.map(b=>fileRow('biblio',b,{ro:true})),'Aún no hay bibliografía. <a href="#" data-a="tab" data-i="biblio">Agrégala aquí</a>.')}</div>`;
+  const k=view.tab,pc=s.tasks.filter(t=>!t.done).length;
+  let body;
+  if(k==='topics'){
+    body=`<form data-k="topics"><input name="name" placeholder="Nombre del tema" required autocomplete="off"><button class="pri">Agregar tema</button></form>`+
+      list(s.topics.map(t=>`<li class="it"><div class="row"><a class="fn" href="#" data-a="topic" data-i="${esc(t.id)}">${esc(t.name)}</a><span class="mut">${t.guides.length} archivos</span><span class="sp"></span><button class="ghost danger" data-a="delt" data-i="${esc(t.id)}">Eliminar</button></div></li>`),'Aún no hay temas. Agrega el primero arriba.');
+  }else if(k==='biblio'){
+    body=`<button class="pri" data-a="addfiles" data-k="biblio">Añadir archivos</button>`+list(s.biblio.map(b=>fileRow('biblio',b)),'Aún no hay bibliografía. Añade los archivos de la asignatura.');
+  }else{
+    const row=t=>fileRow('tasks',t,{link:t.hasFile,cls:t.done?'done':'',meta:due(t),
+      acts:t.done?`<button class="ghost" data-a="done" data-i="${esc(t.id)}">Añadir archivos</button><button class="ghost" data-a="reopen" data-i="${esc(t.id)}">Reabrir</button>`:`<button class="pri" data-a="done" data-i="${esc(t.id)}">Entregar archivos</button><button class="ghost" data-a="done0" data-i="${esc(t.id)}">Marcar hecha</button>`,
+      body:t.files.length?`<div class="files"><span class="mut">Entregado:</span>${t.files.map(f=>chip('tasks',t.id,f)).join('')}</div>`:''});
+    const p=s.tasks.filter(t=>!t.done).sort(byDue),d=s.tasks.filter(t=>t.done);
+    body=`<div class="box"><label class="stack"><span class="mut">Fecha límite (opcional)</span><input type="date" id="dd"></label><div class="row"><button class="pri" data-a="addfiles" data-k="tasks">Añadir tareas (elegir archivos)</button><button class="ghost" data-a="addtext">Tarea sin archivo</button></div></div>`+
+      list(p.map(row),'No hay tareas pendientes.')+(d.length?`<h2>Entregadas</h2>${list(d.map(row))}`:'');
+  }
+  return `<div style="--c:${s.color}">${top}<h1>${esc(s.name)}</h1>
+<nav class="tabs">${[['topics','Temas'],['biblio','Bibliografía'],['tasks','Tareas'+(pc?' ('+pc+')':'')]].map(([t,n])=>`<button class="${t===k?'on':''}" data-a="tab" data-i="${t}">${n}</button>`).join('')}</nav>${body}</div>`;
+}
+
+function render(){
+  if(!ready){$('#app').innerHTML=setup();return}
+  const s=view.s&&cur();
+  if(view.s&&!s)view.s=null;
+  $('#app').innerHTML=s?subj(s):home();
+}
+
+/* ---------- Eventos ---------- */
+document.addEventListener('submit',async e=>{
+  e.preventDefault();
+  const k=e.target.dataset.k,name=(new FormData(e.target).get('name')||'').trim();
+  if(!name)return;
+  if(k==='subject'){
+    const dir=uniq(name,S.subjects);
+    if(NATIVE)for(const sub of['Temas','Bibliografía','Tareas'])await P.mkdir({path:`${dir}/${sub}`}).catch(()=>0);
+    S.subjects.push({id:uid(),name,dir,color:COL[S.subjects.length%COL.length],topics:[],biblio:[],tasks:[]});
+  }else{
+    const s=cur(),dir=uniq(name,s.topics);
+    if(NATIVE)await P.mkdir({path:`${s.dir}/Temas/${dir}`}).catch(()=>0);
+    s.topics.push({id:uid(),name,dir,guides:[]});
+  }
+  await save();render();
+});
+
+document.addEventListener('click',async e=>{
+  const t=e.target.closest('[data-a]');
+  if(!t)return;
+  e.preventDefault();
+  const{a,k,i,f}=t.dataset,s=cur();
+  switch(a){
+    case 'home':view.s=null;view.t=null;break;
+    case 'subj':view={s:i,tab:'topics',t:null};break;
+    case 'tab':view.tab=i;view.t=null;break;
+    case 'topic':view.t=i;break;
+    case 'back':view.t=null;break;
+    case 'dels':{
+      if(!confirm(`¿Eliminar "${s.name}" con todos sus archivos?`))return;
+      if(NATIVE)await P.remove({path:s.dir});else await delFiles(allFiles(s));S.subjects=S.subjects.filter(x=>x!==s);view.s=null;view.t=null;break}
+    case 'delt':{
+      const tp=s.topics.find(x=>x.id===i);
+      if(!confirm(`¿Eliminar el tema "${tp.name}" y sus archivos?`))return;
+      if(NATIVE)await P.remove({path:`${s.dir}/Temas/${tp.dir}`});else await delFiles(tp.guides);s.topics=s.topics.filter(x=>x!==tp);view.t=null;break}
+    case 'addfiles':{
+      const dir=k==='biblio'?`${s.dir}/Bibliografía`:k==='tasks'?`${s.dir}/Tareas`:`${s.dir}/Temas/${s.topics.find(x=>x.id===view.t).dir}`;
+      const ent=await acquire(dir);if(!ent.length)return;
+      const d=$('#dd')?$('#dd').value:'';
+      if(k==='tasks')ent.forEach(x=>Object.assign(x,{hasFile:true,due:d,done:false,files:[]}));
+      LST(s,k).push(...ent);break}
+    case 'addtext':{
+      const n=(prompt('Describe la tarea')||'').trim();if(!n)return;
+      s.tasks.push({id:uid(),name:n,hasFile:false,due:$('#dd')?$('#dd').value:'',done:false,files:[]});break}
+    case 'dele':{
+      const arr=LST(s,k),x=arr.find(y=>y.id===i);
+      if(!confirm(`¿Quitar "${x.name}"?`))return;
+      await delFiles(k==='tasks'?[...(x.hasFile?[x]:[]),...x.files]:[x]);arr.splice(arr.indexOf(x),1);break}
+    case 'done':{
+      const tk=s.tasks.find(x=>x.id===i),ent=await acquire(`${s.dir}/Entregas`);
+      if(!ent.length)return;
+      tk.files.push(...ent);tk.done=true;break}
+    case 'done0':s.tasks.find(x=>x.id===i).done=true;break;
+    case 'reopen':s.tasks.find(x=>x.id===i).done=false;break;
+    case 'delf':{
+      const tk=s.tasks.find(x=>x.id===i);
+      await delFiles([{id:f}]);tk.files=tk.files.filter(x=>x.id!==f);break}
+    case 'pickroot':{
+      const r=await P.pickRoot().catch(()=>null);if(!r)return;
+      rootName=r.name||'';await loadNative();return}
+    case 'open':return viewFile(f);
+    case 'save':return saveFile(f);
+    case 'exp':return exp();
+    case 'imp':return $('#imp').click();
+  }
+  await save();render();
+});
+
+document.addEventListener('change',e=>{
+  if(e.target.id==='imp'&&e.target.files[0])imp(e.target.files[0]).catch(()=>alert('El archivo de respaldo no es válido.'));
+});
+
+(async()=>{
+  if(NATIVE){
+    try{const st=await P.status();rootName=st.name||'';if(st.ok)await loadNative()}
+    catch(e){setupErr='No se pudo abrir la carpeta guardada. Elígela de nuevo.'}
+    render();return;
+  }
+  try{db=await openDB();S=(await tx('kv','readonly',s=>s.get('state')))||S;migrate();navigator.storage?.persist?.()}
+  catch(err){alert('Este navegador no permite guardar datos locales. La app no podrá guardar nada.')}
+  render();
+})();
+</script>
+</body>
+</html>
