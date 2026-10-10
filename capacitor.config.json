@@ -1,0 +1,8 @@
+{
+  "appId": "com.joseyosem.estudios",
+  "appName": "Mis estudios",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  }
+}
