@@ -1,0 +1,53 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Add Android platform
+        run: npx cap add android
+
+      # Plugin propio StudyFolder: carpeta elegida por el usuario con permiso guardado.
+      # No necesita permisos de almacenamiento en el manifest (usa el selector del sistema).
+      - name: Install StudyFolder plugin
+        run: bash scripts/install-studyfolder.sh
+
+      - name: Sync web assets
+        run: npx cap sync android
+
+      - name: Generate app icons from assets/icon.svg
+        run: npx capacitor-assets generate --android
+
+      - name: Grant execute permission to gradlew
+        run: chmod +x android/gradlew
+
+      - name: Build debug APK
+        run: cd android && ./gradlew assembleDebug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: estudios-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
