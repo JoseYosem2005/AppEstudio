@@ -4,6 +4,12 @@
 # Es idempotente: se puede ejecutar en cada build.
 set -euo pipefail
 
+# Interruptor de diagnóstico: si existe scripts/SKIP_PLUGIN no se instala el plugin.
+if [ -f scripts/SKIP_PLUGIN ]; then
+  echo "scripts/SKIP_PLUGIN presente: NO se instala el plugin (build de diagnóstico)"
+  exit 0
+fi
+
 MAIN=$(find android/app/src/main/java -name MainActivity.java | head -n1)
 [ -n "$MAIN" ] || { echo "No se encontró MainActivity.java (¿existe la carpeta android/?)"; exit 1; }
 DIR=$(dirname "$MAIN")
